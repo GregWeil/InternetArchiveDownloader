@@ -13,4 +13,5 @@ Downloads https://archive.org/download/item-name into ./item-name
 ## Key Features
 
 - Download all files in an item, maintaining original folder structure
+- Stop/resume by killing the script and starting it again later
 - Run on an existing folder to verify hashes and redownload changed files

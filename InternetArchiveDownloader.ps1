@@ -92,13 +92,17 @@ try {
       elseif (!($File.Length -eq $FileDefinition.Size)) {
         Request-ArchiveFile $FileName $FileDefinition.Size
       }
-      elseif (!($(Get-FileHash $FilePath -Algorithm MD5).Hash -eq $FileDefinition.MD5)) {
+      elseif (!($(Get-FileHash $FilePath -Algorithm MD5).Hash -eq $FileDefinition.md5)) {
         Request-ArchiveFile $FileName $FileDefinition.Size
       }
-      elseif (!($(Get-FileHash $FilePath -Algorithm SHA1).Hash -eq $FileDefinition.SHA1)) {
+      elseif (!($(Get-FileHash $FilePath -Algorithm SHA1).Hash -eq $FileDefinition.sha1)) {
         Request-ArchiveFile $FileName $FileDefinition.Size
       }
       else {
+        if (!((Get-Date $File.LastWriteTime.ToUniversalTime() -UFormat %s) -eq $FileDefinition.mtime)) {
+          $File.LastWriteTime = (Get-Date "1970-01-01Z").AddSeconds($FileDefinition.mtime)
+          Write-Output "Corrected file timestamp on $($FileName)"
+        }
         $Verified += $FileName
         if (($Verified.Length % 500) -eq 0) {
           Write-Output "Verified $($Verified.Length) files..."

@@ -7,9 +7,9 @@ $OutPath = "./$($Name)/"
 Write-Output "Working in $($OutPath)"
 $MaxConcurrent = 5
 $Pending = @()
-$Verified = 0
-$Downloaded = 0
-$Deleted = 0
+$Verified = @()
+$Downloaded = @()
+$Deleted = @()
 $StartTime = Get-Date
 
 try {
@@ -20,16 +20,17 @@ try {
   $OutPath = Resolve-Path $OutPath
   function Wait-ArchiveFiles {
     param($MaxRemaining = 0)
-    $PendingCount = $Pending.Length
     while ($Pending.Length -gt $MaxRemaining) {
       Wait-Job $script:Pending -Any -Timeout 1 | Out-Null
       Receive-Job $script:Pending
       $script:Pending = @($script:Pending | Where-Object { $_.HasMoreData })
     }
-    $script:Downloaded += $PendingCount - $script:Pending.Length
   }
   function Request-ArchiveFile {
     param($FileName, $FileSize)
+    if ($script:Pending.Length -ge $MaxConcurrent) {
+      Wait-ArchiveFiles ($MaxConcurrent - 1)
+    }
     $OutFile = "$($OutPath)/$($FileName)"
     If (!(Test-Path -PathType Container (Split-Path $OutFile -Parent))) {
       New-Item -ItemType Directory -Path (Split-Path $OutFile -Parent) | Out-Null
@@ -45,9 +46,7 @@ try {
       Start-BitsTransfer -Source $InputObject.Source -Destination $InputObject.Destination -DisplayName $InputObject.Name
       Write-Output "Downloaded $($InputObject.Name) ($((New-TimeSpan $InputObject.StartTime (Get-Date)).TotalSeconds) seconds)"
     }
-    if ($script:Pending.Length -ge $MaxConcurrent) {
-      Wait-ArchiveFiles ($MaxConcurrent - 1)
-    }
+    $script:Downloaded += $FileName
   }
 
   # Step 2: Download the file listing
@@ -63,7 +62,7 @@ try {
 
     function Remove-NonArchiveFile {
       param($Type)
-      $script:Deleted += 1
+      $script:Deleted += $FileName
       if ($Delete) {
         Write-Output "Deleting $($Type) $($FileName)"
         Remove-Item $FilePath -Recurse
@@ -100,7 +99,10 @@ try {
         Request-ArchiveFile $FileName $FileDefinition.Size
       }
       else {
-        $Verified += 1
+        $Verified += $FileName
+        if (($Verified.Length % 500) -eq 0) {
+          Write-Output "Verified $($Verified.Length) files..."
+        }
       }
     }
 
@@ -128,9 +130,9 @@ try {
   Write-Output ""
   $TotalFiles = (Select-Xml -Xml $FileListing -XPath "/files/file").Node.Length
   Write-Output "Archive listing contained $($TotalFiles) $(if ($TotalFiles -eq 1) {"file"} else {"files"})"
-  if ($Downloaded -gt 0) { Write-Output "Downloaded $($Downloaded) $(if ($Downloaded -eq 1) {"file"} else {"files"})" }
-  if ($Verified -gt 0) { Write-Output "Verified $($Verified) $(if ($Verified -eq 1) {"file"} else {"files"}) already present" }
-  if ($Deleted -gt 0) { Write-Output "$(if ($Delete) {"Deleted"} else {"Ignored"}) $($Deleted) $(if ($Deleted -eq 1) {"file"} else {"files"}) not in the archive" }
+  if ($Verified) { Write-Output "Verified $($Verified.Length) $(if ($Verified.Length -eq 1) {"file ($($Verified))"} else {"files"}) already present" }
+  if ($Downloaded.Length) { Write-Output "Downloaded $($Downloaded.Length) $(if ($Downloaded.Length -eq 1) {"file ($($Downloaded))"} else {"files"})" }
+  if ($Deleted.Length) { Write-Output "$(if ($Delete) {"Deleted"} else {"Ignored"}) $($Deleted.Length) $(if ($Deleted.Length -eq 1) {"file ($($Deleted))"} else {"files"}) not in the archive" }
   Write-Output "Completed in $(New-TimeSpan $StartTime (Get-Date))"
 }
 finally {

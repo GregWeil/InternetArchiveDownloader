@@ -100,7 +100,7 @@ try {
       }
       else {
         if (!((Get-Date $File.LastWriteTime.ToUniversalTime() -UFormat %s) -eq $FileDefinition.mtime)) {
-          $File.LastWriteTime = (Get-Date "1970-01-01Z").AddSeconds($FileDefinition.mtime)
+          $File.LastWriteTime = (Get-Date "1970-01-01Z").ToUniversalTime().AddSeconds($FileDefinition.mtime).ToLocalTime()
           Write-Output "Corrected file timestamp on $($FileName)"
         }
         $Verified += $FileName

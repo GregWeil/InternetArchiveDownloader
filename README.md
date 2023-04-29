@@ -9,6 +9,8 @@ Downloads https://archive.org/download/item-name into ./item-name
 
 ### Optional Parameters
 - `-Delete` Remove any files in the download directory not found in the archive
+- `-Folder [name]` Only download the contents of a specific subdirectory
+- `-OutPath [name]` Specify a different location for the downloaded files
 
 ## Key Features
 

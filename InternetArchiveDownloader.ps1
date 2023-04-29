@@ -1,20 +1,24 @@
 param (
+  [Parameter(Mandatory)]
   [string] $Name,
+  [string] $Folder,
+  [string] $OutPath = "./$($Name)/",
   [switch] $Delete
 )
 
-$OutPath = "./$($Name)/"
+$Folder = if ($Folder) { $Folder.Replace('\', '/').Trim('/') + '/' } else { "" }
 Write-Output "Working in $($OutPath)"
 $MaxConcurrent = 5
 $Pending = @()
 $Verified = @()
 $Downloaded = @()
 $Deleted = @()
+$Skipped = @()
 $StartTime = Get-Date
 
 try {
   # Step 1: Create output directory
-  If (!(Test-Path -PathType Container $OutPath)) {
+  if (!(Test-Path -PathType Container $OutPath)) {
     New-Item -ItemType Directory -Path $OutPath | Out-Null
   }
   $OutPath = Resolve-Path $OutPath
@@ -27,12 +31,15 @@ try {
     }
   }
   function Request-ArchiveFile {
-    param($FileName, $FileSize)
+    param($FileName)
     if ($script:Pending.Length -ge $MaxConcurrent) {
       Wait-ArchiveFiles ($MaxConcurrent - 1)
     }
-    $OutFile = "$($OutPath)/$($FileName)"
-    If (!(Test-Path -PathType Container (Split-Path $OutFile -Parent))) {
+    if (!$FileName.StartsWith($script:Folder)) {
+      throw "$($FileName) is not in $($script:Folder)"
+    }
+    $OutFile = "$($OutPath)/$($FileName.Substring($script:Folder.Length))"
+    if (!(Test-Path -PathType Container (Split-Path $OutFile -Parent))) {
       New-Item -ItemType Directory -Path (Split-Path $OutFile -Parent) | Out-Null
     }
     $InputObject = @{
@@ -50,15 +57,19 @@ try {
   }
 
   # Step 2: Download the file listing
-  Request-ArchiveFile "$($Name)_files.xml"
-  Wait-ArchiveFiles
-  [xml]$FileListing = Get-Content "$($OutPath)/$($Name)_files.xml"
-  # (Invoke-WebRequest "https://archive.org/download/$($Name)/$($Name)_files.xml" -UseBasicParsing).Content
+  [xml]$FileListing = if ($Folder) {
+    (Invoke-WebRequest "https://archive.org/download/$($Name)/$($Name)_files.xml" -UseBasicParsing).Content
+  }
+  else {
+    Request-ArchiveFile "$($Name)_files.xml"
+    Wait-ArchiveFiles
+    Get-Content "$($OutPath)/$($Name)_files.xml"
+  }
 
   # Step 3: Check files in output directory, redownload/delete mismatches
   foreach ($File in (Get-ChildItem -LiteralPath $OutPath -Recurse)) {
-    $FileName = $File.FullName.Replace($OutPath, '').Replace('\', '/').TrimStart('/')
-    $FilePath = "$($OutPath)/$($FileName)".TrimEnd('/')
+    $FileName = $Folder + $File.FullName.Replace($OutPath, '').Replace('\', '/').TrimStart('/')
+    $FilePath = $File.FullName.Replace('\', '/').TrimEnd('/')
 
     function Remove-NonArchiveFile {
       param($Type)
@@ -120,8 +131,12 @@ try {
 
   # Step 4: Download all files not in the directory
   foreach ($File in (Select-Xml -Xml $FileListing -XPath "/files/file").Node) {
-    if (!(Test-Path -LiteralPath "$($OutPath)/$($File.Name)")) {
-      Request-ArchiveFile $File.Name $File.Size
+    if (!$File.Name.StartsWith($Folder)) {
+      $Skipped += $File.Name
+      continue;
+    }
+    if (!(Test-Path -LiteralPath "$($OutPath)/$($File.Name.Substring($Folder.Length))")) {
+      Request-ArchiveFile $File.Name
     }
   }
 
@@ -137,6 +152,7 @@ try {
   if ($Verified) { Write-Output "Verified $($Verified.Length) $(if ($Verified.Length -eq 1) {"file ($($Verified))"} else {"files"}) already present" }
   if ($Downloaded.Length) { Write-Output "Downloaded $($Downloaded.Length) $(if ($Downloaded.Length -eq 1) {"file ($($Downloaded))"} else {"files"})" }
   if ($Deleted.Length) { Write-Output "$(if ($Delete) {"Deleted"} else {"Ignored"}) $($Deleted.Length) $(if ($Deleted.Length -eq 1) {"file ($($Deleted))"} else {"files"}) not in the archive" }
+  if ($Skipped.Length) { Write-Output "Skipped $($Skipped.Length) $(if ($Skipped.Length -eq 1) {"file ($($Deleted))"} else {"files"}) not in $($Folder)" }
   Write-Output "Completed in $(New-TimeSpan $StartTime (Get-Date))"
 }
 finally {
